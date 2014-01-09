@@ -162,6 +162,16 @@ bind_to_cols(mrb_state* mrb, mrb_value cols, MYSQL_RES* res, MYSQL_FIELD* flds, 
       mrb_ary_push(mrb, cols, mrb_nil_value());
     } else {
       switch (flds[i].type) {
+    	case MYSQL_TYPE_NULL:
+        mrb_ary_push(mrb, cols, mrb_nil_value());
+        break;
+      case MYSQL_TYPE_BIT:        /* BIT field (MySQL 5.0.3 and up) */
+        if (flds[i].length == 1) {
+          mrb_ary_push(mrb, cols, (*(char*)results[i].buffer == 1 ? mrb_true_value() : mrb_false_value()));
+        } else {
+          mrb_ary_push(mrb, cols, (mrb_str_new(mrb, results[i].buffer, results[i].length_value)));
+        }
+        break;
       case MYSQL_TYPE_DECIMAL:
         mrb_ary_push(mrb, cols, mrb_fixnum_value(*(int*)results[i].buffer));
         break;
@@ -183,15 +193,50 @@ bind_to_cols(mrb_state* mrb, mrb_value cols, MYSQL_RES* res, MYSQL_FIELD* flds, 
     	case MYSQL_TYPE_DOUBLE:
         mrb_ary_push(mrb, cols, mrb_float_value(mrb, *(double*)results[i].buffer));
         break;
-    	case MYSQL_TYPE_BLOB:
-    	case MYSQL_TYPE_VAR_STRING:
+      case MYSQL_TYPE_TIME:     /* TIME field */
+      case MYSQL_TYPE_TIMESTAMP: /* TIMESTAMP field */
+      case MYSQL_TYPE_DATETIME:  /* DATETIME field */
+      case MYSQL_TYPE_DATE:      /* DATE field */
+      case MYSQL_TYPE_NEWDATE: { /* Newer const used > 5.0 */
+        MYSQL_TIME *ts;
+        mrb_value val;
+
+        ts = (MYSQL_TIME *)results[i].buffer;
+
+        if (MYSQL_TYPE_TIME == flds[i].type) {
+          ts->year = 2000;
+          ts->month = 1;
+          ts->day = 1;
+        }
+
+        if (!(ts->year + ts->month + ts->day + ts->hour + ts->minute + ts->second)) {
+          val = mrb_nil_value();
+        } else {
+          val = mrb_funcall(mrb, mrb_obj_value(mrb_class_get(mrb, "Time")), "local", 6,
+              mrb_fixnum_value(ts->year),
+              mrb_fixnum_value(ts->month),
+              mrb_fixnum_value(ts->day),
+              mrb_fixnum_value(ts->hour),
+              mrb_fixnum_value(ts->minute),
+              mrb_fixnum_value(ts->second)
+              );
+        }
+
+        mrb_ary_push(mrb, cols, val);
+        break;
+      }
+      case MYSQL_TYPE_TINY_BLOB:
+      case MYSQL_TYPE_MEDIUM_BLOB:
+      case MYSQL_TYPE_LONG_BLOB:
+      case MYSQL_TYPE_BLOB:
+      case MYSQL_TYPE_VAR_STRING:
+      case MYSQL_TYPE_VARCHAR:
+      case MYSQL_TYPE_STRING:     /* CHAR or BINARY field */
+      case MYSQL_TYPE_SET:        /* SET field */
+      case MYSQL_TYPE_ENUM:       /* ENUM field */
+      case MYSQL_TYPE_GEOMETRY:   /* Spatial fielda */
+        mrb_str_new(mrb, results[i].buffer, results[i].length_value);
         mrb_ary_push(mrb, cols, mrb_str_new(mrb, results[i].buffer, results[i].length_value));
-        break;
-    	case MYSQL_TYPE_STRING:
-        mrb_ary_push(mrb, cols, mrb_str_new_cstr(mrb, results[i].buffer));
-        break;
-    	case MYSQL_TYPE_NULL:
-        mrb_ary_push(mrb, cols, mrb_nil_value());
         break;
       default:
         mrb_ary_push(mrb, cols, mrb_fixnum_value(*(long*)results[i].buffer));
@@ -283,9 +328,12 @@ mrb_mysql_database_execute(mrb_state *mrb, mrb_value self) {
     if (IS_LONGDATA(flds[i].type)) {
       results[i].buffer = malloc(flds[i].length);
       results[i].buffer_length = flds[i].length;
-    } else {
+    } else if (IS_NUM(flds[i].type)) {
       results[i].buffer = malloc(sizeof(long long int));
       results[i].buffer_length = sizeof(long long int);
+    } else {
+      results[i].buffer = malloc(sizeof(MYSQL_TIME));
+      results[i].buffer_length = sizeof(MYSQL_TIME);
     }
     results[i].length = &results[i].length_value;
     results[i].is_null = &results[i].is_null_value;
@@ -581,6 +629,7 @@ mrb_mruby_mysql_gem_init(mrb_state* mrb) {
 
 void
 mrb_mruby_mysql_gem_final(mrb_state* mrb) {
+  
 }
 
 /* vim:set et ts=2 sts=2 sw=2 tw=0: */
