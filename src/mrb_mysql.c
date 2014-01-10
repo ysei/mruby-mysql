@@ -85,6 +85,9 @@ mrb_mysql_database_init(mrb_state *mrb, mrb_value self) {
   mrb_get_args(mrb, "SSSS|i|S|i", &arg_host, &arg_user, &arg_passwd, &arg_dbname, &arg_port, &arg_sock, &arg_flags);
 
   mdb = mysql_init(NULL);
+
+  mysql_options(mdb, MYSQL_SET_CHARSET_NAME, "utf8");
+
   if (!mysql_real_connect(
     mdb,
     RSTRING_PTR(arg_host),
@@ -96,7 +99,6 @@ mrb_mysql_database_init(mrb_state *mrb, mrb_value self) {
     arg_flags)) {
     mrb_raise(mrb, E_RUNTIME_ERROR, mysql_error(mdb));
   }
-  mysql_options(mdb, MYSQL_SET_CHARSET_NAME, "utf-8");
 
   db = (mrb_mysql_database*) malloc(sizeof(mrb_mysql_database));
   if (!db) {
